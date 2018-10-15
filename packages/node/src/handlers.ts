@@ -205,6 +205,11 @@ function parseRequest(
   return event;
 }
 
+/** Domain interface with attached Hub */
+interface SentryDomain extends NodeJS.Domain {
+  __SENTRY__?: Carrier;
+}
+
 /** JSDoc */
 export function requestHandler(options?: {
   request?: boolean;
@@ -218,11 +223,25 @@ export function requestHandler(options?: {
     res: http.ServerResponse,
     next: (error?: any) => void,
   ): void {
-    const local = domain.create();
+    const alreadyRunningDomain = process.domain as SentryDomain;
+    let alreadyRunningDomainHub: Hub | undefined;
+
+    if (alreadyRunningDomain) {
+      if (alreadyRunningDomain.__SENTRY__) {
+        alreadyRunningDomainHub = alreadyRunningDomain.__SENTRY__.hub;
+      }
+    }
+
+    const local = domain.create() as SentryDomain;
     local.add(req);
     local.add(res);
     local.on('error', next);
     local.run(() => {
+      if (alreadyRunningDomainHub) {
+        local.__SENTRY__ = {
+          hub: alreadyRunningDomainHub,
+        };
+      }
       getCurrentHub().configureScope(scope =>
         scope.addEventProcessor(async (event: SentryEvent) => parseRequest(event, req, options)),
       );
